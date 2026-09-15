@@ -121,10 +121,13 @@ def test_validate_vault_path_rejects_absolute_paths(absolute_path):
         "%25252e%25252e/secret.txt",
         "notes/%2e%2e/secret.txt",
         "notes/%252e%252e/secret.txt",
+        # Six layers of encoding: still changing after the five-pass cap,
+        # so it is rejected fail-closed (see Copilot review on the PR).
+        "..%25252525252Fsecret.txt",
     ],
 )
 def test_validate_vault_path_rejects_url_encoded_traversals(encoded_path):
-    with pytest.raises(ValueError, match="Path traversal|Path resolves outside"):
+    with pytest.raises(ValueError, match="Path traversal|Path resolves outside|excessively nested"):
         validate_vault_path(encoded_path)
 
 

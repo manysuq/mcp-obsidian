@@ -31,13 +31,19 @@ def validate_vault_path(path: str, is_dir: bool = False) -> str:
             return ""
         raise ValueError("Filepath cannot be empty")
 
-    # Multi-pass URL decoding to defeat nested/double URL encoding (e.g. %252e%252e)
+    # Multi-pass URL decoding to defeat nested/double URL encoding (e.g. %252e%252e).
+    # The cap is a fail-closed guard: if the value is still changing after the
+    # last pass, deeper encoding remains and downstream stages could decode it
+    # into something we did not validate, so reject it.
     decoded = cleaned
     for _ in range(5):
         next_decoded = urllib.parse.unquote(decoded)
         if next_decoded == decoded:
             break
         decoded = next_decoded
+    else:
+        if urllib.parse.unquote(decoded) != decoded:
+            raise ValueError(f"Path has excessively nested URL encoding: {path!r}")
 
     # Reject null bytes (raw or previously URL-encoded)
     if "\x00" in decoded:
