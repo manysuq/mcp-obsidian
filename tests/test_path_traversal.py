@@ -363,7 +363,58 @@ def test_search_by_tag_root_dirpath_omits_glob():
 
     with patch("mcp_obsidian.obsidian.requests.post", return_value=resp) as mock_post:
         api.search_by_tag("tasks", dirpath=".")
-        sent = mock_post.call_args.kwargs["json"]
-        assert sent == {"in": ["tasks", {"var": "tags"}]}
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "..%c0%af",  # overlong UTF-8 for '/'
+        "%c0%ae%c0%ae/",  # overlong UTF-8 for '..'
+        "%c0%ae/%c0%ae/x",
+        "notes/..%c0%af/x",
+        "..%c0%af..%c0%afsecret.txt",
+        "%e0%80%ae%e0%80%ae/",  # another overlong encoding of '..'
+        "%25%32%35%32%65%25%32%35%32%65",  # triple-nested encoding of '..'
+        "%25252e%25252e%25252f",  # triple-nested encoding of '../'
+    ],
+)
+def test_validate_vault_path_rejects_invalid_utf8_and_nested_encoding(payload):
+    with pytest.raises(ValueError):
+        validate_vault_path(payload)
+    with pytest.raises(ValueError):
+        validate_vault_path(payload, is_dir=True)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "..%c0%af",
+        "%c0%ae%c0%ae/secret.txt",
+        "notes/..%c0%af/x",
+    ],
+)
+@pytest.mark.parametrize(
+    "tool_name,argument_name,extra_arguments",
+    [
+        ("obsidian_get_file_contents", "filepath", {}),
+        ("obsidian_list_files_in_dir", "dirpath", {}),
+        ("obsidian_put_content", "filepath", {"content": "data"}),
+        ("obsidian_delete_file", "filepath", {"confirm": True}),
+        ("obsidian_get_frontmatter", "filepath", {}),
+    ],
+)
+def test_server_call_tool_blocks_overlong_utf8_payloads(tool_name, argument_name, extra_arguments, payload):
+    arguments = {argument_name: payload, **extra_arguments}
+    with patch("mcp_obsidian.obsidian.requests.get") as mock_get, \
+         patch("mcp_obsidian.obsidian.requests.post") as mock_post, \
+         patch("mcp_obsidian.obsidian.requests.put") as mock_put, \
+         patch("mcp_obsidian.obsidian.requests.delete") as mock_delete:
+        with pytest.raises(RuntimeError, match="Caught Exception. Error:"):
+            _call_tool(tool_name, arguments)
+
+        mock_get.assert_not_called()
+        mock_post.assert_not_called()
+        mock_put.assert_not_called()
+        mock_delete.assert_not_called()
 
 

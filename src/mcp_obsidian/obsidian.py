@@ -37,13 +37,22 @@ def validate_vault_path(path: str, is_dir: bool = False) -> str:
     # into something we did not validate, so reject it.
     decoded = cleaned
     for _ in range(5):
-        next_decoded = urllib.parse.unquote(decoded)
+        try:
+            next_decoded = urllib.parse.unquote(decoded, errors="strict")
+        except UnicodeDecodeError:
+            # Invalid UTF-8 percent-escapes (e.g. overlong sequences like
+            # %c0%af that some decoders normalize to '/' or '.') must never
+            # reach the server, where they could be interpreted as separators.
+            raise ValueError(f"Path contains invalid UTF-8 percent-encoding: {path!r}") from None
         if next_decoded == decoded:
             break
         decoded = next_decoded
     else:
-        if urllib.parse.unquote(decoded) != decoded:
-            raise ValueError(f"Path has excessively nested URL encoding: {path!r}")
+        try:
+            if urllib.parse.unquote(decoded, errors="strict") != decoded:
+                raise ValueError(f"Path has excessively nested URL encoding: {path!r}")
+        except UnicodeDecodeError:
+            raise ValueError(f"Path contains invalid UTF-8 percent-encoding: {path!r}") from None
 
     # Reject null bytes (raw or previously URL-encoded)
     if "\x00" in decoded:
